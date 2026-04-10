@@ -1,6 +1,6 @@
 # Data Lifecycle Management - Oracle to Iceberg Offload Control Plane
 
-## 🚀 Overview
+## Overview
 
 This project demonstrates an end-to-end **data lifecycle management system**:
 
@@ -11,7 +11,7 @@ This project demonstrates an end-to-end **data lifecycle management system**:
 
 ---
 
-## 🧠 Architecture
+## Architecture
 
 ```
 Oracle (Hot Data)
@@ -31,7 +31,7 @@ Iceberg (Cold Data on MinIO)
 
 ---
 
-## 🧩 Components
+## Components
 
 ### 🔹 Backend
 - FastAPI
@@ -61,36 +61,36 @@ Features:
 
 ---
 
-## ⚙️ Features
+## Features
 
-### ✅ Connection Management
+### Connection Management
 - Add / delete Oracle connections
 - Test connectivity
 
-### ✅ Inventory Explorer
+### Inventory Explorer
 - Browse schemas, tables, columns
 - Select date column dynamically
 
-### ✅ Data Coverage
+### Data Coverage
 - Compare Oracle vs Iceberg
-- Compute **offloadable window**
+- Compute offloadable window
 
-### ✅ Offload Job
+### Offload Job
 - Submit job with date range
 - Uses **DELETE + APPEND** to avoid duplicates
 
-### ✅ Job Monitoring
+### Job Monitoring
 - Job history
 - Status tracking:
   - `PENDING → RUNNING → SUCCESS / FAILED`
 - Spark logs captured and displayed in UI
 
-### ✅ Federated Query
+### Federated Query
 Query across systems via Trino
 
 ---
 
-## 🛠️ Setup
+## Setup
 
 ### 1. Clone repository
 
@@ -129,7 +129,7 @@ docker compose up -d
 
 ---
 
-## 🌐 Access
+## Access
 
 | Component        | URL |
 |----------------|-----|
@@ -140,7 +140,7 @@ docker compose up -d
 
 ---
 
-## 🔍 Example Workflow
+## Example Workflow
 
 1. Create Oracle connection
 2. Select schema → table → date column
@@ -151,7 +151,7 @@ docker compose up -d
 
 ---
 
-## 📦 Project Structure
+## Project Structure
 
 ```
 control-plane/
@@ -168,7 +168,7 @@ README.md
 
 ---
 
-## ⚠️ Important Notes
+## Important Notes
 
 Do NOT commit:
 - `jars/`
@@ -183,12 +183,12 @@ Use Docker network hostnames:
 
 ---
 
-## 🚀 Future Improvements
+## Future Improvements
 
 - Async job execution (background worker)
 - MERGE INTO instead of DELETE + APPEND
 - Partition optimization
 - Data validation layer
 - UI enhancements (timeline, charts)
-
+- Transform into full Data Lakehouse platform
 ---
