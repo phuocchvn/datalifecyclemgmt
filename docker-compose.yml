@@ -1,0 +1,198 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    hostname: postgres
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hivepassword
+      POSTGRES_DB: metastore_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - lakehouse
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d metastore_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    container_name: oracle
+    hostname: oracle
+    environment:
+      ORACLE_PASSWORD: oracle
+      APP_USER: app
+      APP_USER_PASSWORD: app
+    ports:
+      - "1521:1521"
+      - "5500:5500"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    networks:
+      - lakehouse
+
+  control-plane-db:
+    image: postgres:16
+    container_name: control-plane-db
+    hostname: control-plane-db
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: apppassword
+      POSTGRES_DB: control_plane
+    ports:
+      - "5433:5432"
+    volumes:
+      - control_plane_db_data:/var/lib/postgresql/data
+    networks:
+      - lakehouse
+
+  control-plane-api:
+    build:
+      context: ./control-plane/backend
+      dockerfile: Dockerfile
+    container_name: control-plane-api
+    hostname: control-plane-api
+    depends_on:
+      - control-plane-db
+      - trino
+      - spark
+    environment:
+      APP_DB_URL: postgresql+psycopg2://app:apppassword@control-plane-db:5432/control_plane
+
+      ORACLE_DSN: oracle:1521/XEPDB1
+      ORACLE_USER: dwh
+      ORACLE_PASSWORD: dwh
+
+      TRINO_HOST: trino
+      TRINO_PORT: 8080
+      TRINO_USER: admin
+
+      SPARK_CONTAINER_NAME: spark
+      SPARK_JOBS_DIR: /opt/jobs
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./control-plane/backend:/app
+      - ./control-plane/jobs:/opt/jobs
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - lakehouse
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    hostname: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./minio-data:/data
+    networks:
+      - lakehouse
+
+  mc:
+    image: minio/mc:latest
+    container_name: mc
+    hostname: mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minio minio123; do
+        echo 'waiting for minio...';
+        sleep 2;
+      done;
+      /usr/bin/mc mb -p local/warehouse || true;
+      /usr/bin/mc anonymous set private local/warehouse || true;
+      tail -f /dev/null
+      "
+    networks:
+      - lakehouse
+
+  metastore:
+    image: apache/hive:4.0.0
+    container_name: metastore
+    hostname: metastore
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/metastore_db
+        -Djavax.jdo.option.ConnectionUserName=hive
+        -Djavax.jdo.option.ConnectionPassword=hivepassword
+        -Dhive.metastore.warehouse.dir=s3a://warehouse/
+        
+    ports:
+      - "9083:9083"
+    volumes:
+      - ./drivers/postgresql-42.7.3.jar:/opt/hive/lib/postgresql.jar
+      - ./drivers/hadoop-aws-3.3.4.jar:/opt/hive/lib/hadoop-aws-3.3.4.jar
+      - ./drivers/aws-java-sdk-bundle-1.12.262.jar:/opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar
+      - ./conf/hive/core-site.xml:/opt/hive/conf/core-site.xml
+    networks:
+      - lakehouse
+
+  spark:
+    image: tabulario/spark-iceberg:latest
+    container_name: spark
+    hostname: spark
+    depends_on:
+      - metastore
+      - minio
+    networks:
+      - lakehouse
+    ports:
+      - "4040:4040"
+      - "8888:8888"
+      - "10000:10000"
+    environment:
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      AWS_ENDPOINT_URL: http://minio:9000
+    volumes:
+      - ./conf/spark/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+      - ./control-plane/jobs:/opt/jobs
+      - ./jars/ojdbc8.jar:/opt/spark/jars/ojdbc8.jar
+      - ./notebooks:/home/iceberg/notebooks
+      - ./drivers/hadoop-aws-3.3.4.jar:/opt/spark/jars/hadoop-aws-3.3.4.jar
+      - ./drivers/aws-java-sdk-bundle-1.12.262.jar:/opt/spark/jars/aws-java-sdk-bundle-1.12.262.jar
+
+  trino:
+    image: trinodb/trino:latest
+    container_name: trino
+    hostname: trino
+    depends_on:
+      - metastore
+      - minio
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./conf/trino/catalog:/etc/trino/catalog
+    networks:
+      - lakehouse
+
+volumes:
+  postgres_data:
+  oracle_data:
+  control_plane_db_data:
+
+networks:
+  lakehouse:
+    driver: bridge
